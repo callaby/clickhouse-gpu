@@ -1,0 +1,24 @@
+// Copyright 2016-2020 NVIDIA
+//    Licensed under the Apache License, Version 2.0 (the "License");
+//    you may not use this file except in compliance with the License.
+//    You may obtain a copy of the License at
+//        http://www.apache.org/licenses/LICENSE-2.0
+//    Unless required by applicable law or agreed to in writing, software
+//    distributed under the License is distributed on an "AS IS" BASIS,
+//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//    See the License for the specific language governing permissions and
+//    limitations under the License.
+
+;This configuration file initializes construction of buffers from scratch
+
+"maximum memory in MB"  1000;	'float', maximum memory used by the buffer of (keys|texts).
+"CSV separator"         ','; char, defines separator used fro CSV output (in soviet russia it is ';' for some reason!)
+"print CSV"             "false"; bool, gives directions whether to print resulting buffers in CSV format in std::cout.
+"text length"           15; 'int', expected mean length of (texts).
+"text stddev"           5; 'int', standard deviation of the length in (texts).
+"key length"            15; 'int', expected mean length of (keys).
+"key stddev"            5; 'int', standard deviation of the length in (keys).
+"number of unique keys"  10000; 'int', number of unique keys. 
+"number of unique texts" 1000; 'int', ratio of unique texts. 
+"save file name"        "test_save.dat"; file name to save buffers to. Buffers are not saved if the filename is not given.
+"rec_perm" 00000; maximum number of records generated via permutation of the buffer

@@ -1,0 +1,21 @@
+// Copyright 2016-2020 NVIDIA
+//    Licensed under the Apache License, Version 2.0 (the "License");
+//    you may not use this file except in compliance with the License.
+//    You may obtain a copy of the License at
+//        http://www.apache.org/licenses/LICENSE-2.0
+//    Unless required by applicable law or agreed to in writing, software
+//    distributed under the License is distributed on an "AS IS" BASIS,
+//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//    See the License for the specific language governing permissions and
+//    limitations under the License.
+
+#include <Common/Cuda/cudaInitDevice.h>
+#include <Common/Cuda/CudaHostPinnedMemPool.h>
+
+void cudaInitDevice(int dev_number, size_t pinned_pool_size)
+{   
+    printf("cudaInitDevice: dev_number = %u, pinned_pool_size = %u", dev_number, pinned_pool_size);
+    fflush(stdout);
+    CUDA_SAFE_CALL(cudaSetDevice(dev_number));
+    CudaHostPinnedMemPool::instance().init(pinned_pool_size);
+}

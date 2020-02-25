@@ -13,6 +13,7 @@
 #include <Common/formatReadable.h>
 #include <IO/WriteHelpers.h>
 
+#include <Common/Cuda/CudaHostPinnedMemPool.h>
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
 #ifndef MAP_ANONYMOUS
@@ -52,7 +53,14 @@ void * Allocator<clear_memory_>::alloc(size_t size, size_t alignment)
 {
     CurrentMemoryTracker::alloc(size);
 
-    void * buf;
+    void * buf = CudaHostPinnedMemPool::instance().alloc(size, alignment);
+
+    if (clear_memory)
+        memset(buf, 0, size);
+
+    return buf;
+
+    /*void * buf;
 
     if (size >= MMAP_THRESHOLD)
     {
@@ -91,14 +99,14 @@ void * Allocator<clear_memory_>::alloc(size_t size, size_t alignment)
         }
     }
 
-    return buf;
+    return buf;*/
 }
 
 
 template <bool clear_memory_>
 void Allocator<clear_memory_>::free(void * buf, size_t size)
 {
-    if (size >= MMAP_THRESHOLD)
+    /*if (size >= MMAP_THRESHOLD)
     {
         if (0 != munmap(buf, size))
             DB::throwFromErrno("Allocator: Cannot munmap " + formatReadableSizeWithBinarySuffix(size) + ".", DB::ErrorCodes::CANNOT_MUNMAP);
@@ -106,7 +114,9 @@ void Allocator<clear_memory_>::free(void * buf, size_t size)
     else
     {
         ::free(buf);
-    }
+    }*/
+
+    CudaHostPinnedMemPool::instance().free(buf);
 
     CurrentMemoryTracker::free(size);
 }
@@ -115,7 +125,7 @@ void Allocator<clear_memory_>::free(void * buf, size_t size)
 template <bool clear_memory_>
 void * Allocator<clear_memory_>::realloc(void * buf, size_t old_size, size_t new_size, size_t alignment)
 {
-    if (old_size == new_size)
+    /*if (old_size == new_size)
     {
         /// nothing to do.
     }
@@ -161,7 +171,16 @@ void * Allocator<clear_memory_>::realloc(void * buf, size_t old_size, size_t new
         buf = new_buf;
     }
 
-    return buf;
+    return buf;*/
+
+    CurrentMemoryTracker::realloc(old_size, new_size);
+
+    void * new_buf = CudaHostPinnedMemPool::instance().realloc(buf, old_size, new_size, alignment);
+
+    if (clear_memory && new_size > old_size)
+        memset(reinterpret_cast<char *>(new_buf) + old_size, 0, new_size - old_size);
+
+    return new_buf;
 }
 
 

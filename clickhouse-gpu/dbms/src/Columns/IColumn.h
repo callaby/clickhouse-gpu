@@ -358,7 +358,7 @@ using Columns = std::vector<ColumnPtr>;
 using MutableColumns = std::vector<MutableColumnPtr>;
 
 using ColumnRawPtrs = std::vector<const IColumn *>;
-//using MutableColumnRawPtrs = std::vector<IColumn *>;
+using MutableColumnRawPtrs = std::vector<IColumn *>;
 
 template <typename ... Args>
 struct IsMutableColumns;

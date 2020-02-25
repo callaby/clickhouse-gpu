@@ -8,6 +8,9 @@
 #include <AggregateFunctions/IAggregateFunction.h>
 #include <IO/WriteHelpers.h>
 
+#if USE_CUDA
+#include <AggregateFunctions/Cuda/createAggregateFunction.h>
+#endif
 
 namespace DB
 {
@@ -67,6 +70,13 @@ public:
     }
 
     const char * getHeaderFilePath() const override { return __FILE__; }
+
+#if USE_CUDA
+    const CudaAggregateFunctionPtr  createCudaFunction() const override
+    {
+        return createCudaAggregateFunctionCount();
+    }
+#endif
 };
 
 

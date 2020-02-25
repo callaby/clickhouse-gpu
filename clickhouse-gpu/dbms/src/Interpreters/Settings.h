@@ -247,7 +247,17 @@ struct Settings
     M(SettingUInt64, max_network_bandwidth, 0, "The maximum speed of data exchange over the network in bytes per second for a query. Zero means unlimited.") \
     M(SettingUInt64, max_network_bytes, 0, "The maximum number of bytes (compressed) to receive or transmit over the network for execution of the query.") \
     M(SettingUInt64, max_network_bandwidth_for_user, 0, "The maximum speed of data exchange over the network in bytes per second for all concurrently running user queries. Zero means unlimited.")\
-    M(SettingUInt64, max_network_bandwidth_for_all_users, 0, "The maximum speed of data exchange over the network in bytes per second for all concurrently running queries. Zero means unlimited.")
+    M(SettingUInt64, max_network_bandwidth_for_all_users, 0, "The maximum speed of data exchange over the network in bytes per second for all concurrently running queries. Zero means unlimited.")\
+    \
+    M(SettingBool, use_cuda_aggregation, false, "Whether to use CUDA aggregation")\
+    M(SettingUInt64, cuda_device_number, 0, "CUDA device number (temporal)")\
+    M(SettingUInt64, cuda_host_pinned_mem_pool_size, 2147483648, "Size of pinned memory pool for cpu/gpu transfers")\
+    M(SettingUInt64, cuda_chunks_number, 2, "number of CUDA working streams per device")\
+    M(SettingUInt64, cuda_hash_table_max_size, 16384, "CUDA maximum result size (temporal)")\
+    M(SettingUInt64, cuda_hash_table_strings_buffer_max_size, 262144, "CUDA maximum total size of all strings keys in result (temporal)")\
+    M(SettingUInt64, cuda_buffer_max_strings_number, 2097152, "CUDA maximum rows number in one time processed block")\
+    M(SettingUInt64, cuda_buffer_max_size, 134217728, "CUDA maximum total size of all strings in one time processed block")\
+    M(SettingUInt64, cuda_memcpy_threads_num, 1, "CUDA maximum threads to copy block into pinned buffer")
 
 #define DECLARE(TYPE, NAME, DEFAULT, DESCRIPTION) \
     TYPE NAME {DEFAULT};

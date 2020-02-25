@@ -6,6 +6,9 @@
 #include <DataStreams/MergeSortingBlockInputStream.h>
 #include <DataStreams/MergingSortedBlockInputStream.h>
 #include <DataStreams/AggregatingBlockInputStream.h>
+#if USE_CUDA
+#include <DataStreams/Cuda/CudaAggregatingBlockInputStream.h>
+#endif
 #include <DataStreams/MergingAggregatedBlockInputStream.h>
 #include <DataStreams/MergingAggregatedMemoryEfficientBlockInputStream.h>
 #include <DataStreams/AsynchronousBlockInputStream.h>
@@ -786,12 +789,26 @@ void InterpreterSelectQuery::executeAggregation(Pipeline & pipeline, const Expre
     /// If there are several sources, then we perform parallel aggregation
     if (pipeline.streams.size() > 1)
     {
+#if !USE_CUDA
         pipeline.firstStream() = std::make_shared<ParallelAggregatingBlockInputStream>(
             pipeline.streams, pipeline.stream_with_non_joined_data, params, final,
             max_streams,
             settings.aggregation_memory_efficient_merge_threads
                 ? static_cast<size_t>(settings.aggregation_memory_efficient_merge_threads)
                 : static_cast<size_t>(settings.max_threads));
+#else
+        if (settings.use_cuda_aggregation) {
+            executeUnion(pipeline);
+            pipeline.firstStream() = std::make_shared<CudaAggregatingBlockInputStream>(pipeline.firstStream(), params, context, final);
+        } else {
+            pipeline.firstStream() = std::make_shared<ParallelAggregatingBlockInputStream>(
+                pipeline.streams, pipeline.stream_with_non_joined_data, params, final,
+                max_streams,
+                settings.aggregation_memory_efficient_merge_threads
+                    ? static_cast<size_t>(settings.aggregation_memory_efficient_merge_threads)
+                    : static_cast<size_t>(settings.max_threads));
+        }
+#endif
 
         pipeline.stream_with_non_joined_data = nullptr;
         pipeline.streams.resize(1);
@@ -807,7 +824,14 @@ void InterpreterSelectQuery::executeAggregation(Pipeline & pipeline, const Expre
         if (pipeline.stream_with_non_joined_data)
             inputs.push_back(pipeline.stream_with_non_joined_data);
 
+#if !USE_CUDA
         pipeline.firstStream() = std::make_shared<AggregatingBlockInputStream>(std::make_shared<ConcatBlockInputStream>(inputs), params, final);
+#else
+        if (settings.use_cuda_aggregation)
+            pipeline.firstStream() = std::make_shared<CudaAggregatingBlockInputStream>(std::make_shared<ConcatBlockInputStream>(inputs), params, context, final);
+        else
+            pipeline.firstStream() = std::make_shared<AggregatingBlockInputStream>(std::make_shared<ConcatBlockInputStream>(inputs), params, final);
+#endif        
 
         pipeline.stream_with_non_joined_data = nullptr;
     }

@@ -231,6 +231,8 @@ if (UNBUNDLED OR NOT (ARCH_LINUX OR APPLE) OR ARCH_32)
     option (NO_WERROR "Disable -Werror compiler option" ON)
 endif ()
 
+option (USE_CUDA "Enable highly experimental CUDA support" OFF)
+
 message (STATUS "Building for: ${CMAKE_SYSTEM} ${CMAKE_SYSTEM_PROCESSOR} ${CMAKE_LIBRARY_ARCHITECTURE} ; USE_STATIC_LIBRARIES=${USE_STATIC_LIBRARIES} MAKE_STATIC_LIBRARIES=${MAKE_STATIC_LIBRARIES} UNBUNDLED=${UNBUNDLED} CCACHE=${CCACHE_FOUND} ${CCACHE_VERSION}")
 
 include(GNUInstallDirs)
@@ -262,6 +264,14 @@ include (cmake/find_re2.cmake)
 include (cmake/find_rdkafka.cmake)
 include (cmake/find_capnp.cmake)
 include (cmake/find_llvm.cmake)
+
+if (USE_CUDA)
+    set (CUB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/contrib/cub)
+    include(FindCUDA)
+    include_directories(${CUDA_INCLUDE_DIRS})
+    set (CUDA_PROPAGATE_HOST_FLAGS ON)
+    set (CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-std=c++14)
+endif ()
 
 include (cmake/find_contrib_lib.cmake)
 find_contrib_lib(cityhash)

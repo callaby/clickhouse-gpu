@@ -378,6 +378,11 @@ namespace ErrorCodes
     extern const int POCO_EXCEPTION = 1000;
     extern const int STD_EXCEPTION = 1001;
     extern const int UNKNOWN_EXCEPTION = 1002;
+
+//#if USE_CUDA
+    extern const int CUDA_UNSUPPORTED_AGGREGATE_FUNCTION = 1999;
+    extern const int CUDA_UNSUPPORTED_CASE = 2000;
+//#endif
 }
 
 }

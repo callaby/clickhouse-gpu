@@ -19,6 +19,9 @@
 #include <Common/getFQDNOrHostName.h>
 #include <Common/getMultipleKeysFromConfig.h>
 #include <Common/getNumberOfPhysicalCPUCores.h>
+#if USE_CUDA
+#include <Common/Cuda/cudaInitDevice.h>
+#endif
 #include <IO/HTTPCommon.h>
 #include <Interpreters/AsynchronousMetrics.h>
 #include <Interpreters/DDLWorker.h>
@@ -92,6 +95,13 @@ int Server::main(const std::vector<std::string> & /*args*/)
     registerAggregateFunctions();
     registerTableFunctions();
     registerStorages();
+
+    /// TODO is it OK to place it here??
+#if USE_CUDA    
+    LOG_INFO(log, "Initializaing CUDA context");
+    //cudaInitDevice(0, 8589934592);
+    cudaInitDevice(0, 17179869184);
+#endif
 
     CurrentMetrics::set(CurrentMetrics::Revision, ClickHouseRevision::get());
 

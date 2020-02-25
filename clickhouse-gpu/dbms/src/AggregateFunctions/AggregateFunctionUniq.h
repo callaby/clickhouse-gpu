@@ -23,6 +23,9 @@
 #include <AggregateFunctions/UniqCombinedBiasData.h>
 #include <AggregateFunctions/UniqVariadicHash.h>
 
+#if USE_CUDA
+#include <AggregateFunctions/Cuda/createAggregateFunction.h>
+#endif
 
 namespace DB
 {
@@ -334,6 +337,16 @@ public:
     }
 
     const char * getHeaderFilePath() const override { return __FILE__; }
+
+#if USE_CUDA
+    const CudaAggregateFunctionPtr  createCudaFunction() const override
+    {
+        /// TODO check data type and uniq type
+        //using CudaFunction_t = CudaAggregateFunctionUniq<String, CudaAggregateFunctionUniqHLL12Data>;
+        //return std::make_shared<CudaFunction_t>();
+        return createCudaAggregateFunctionUniq();
+    }
+#endif
 };
 
 

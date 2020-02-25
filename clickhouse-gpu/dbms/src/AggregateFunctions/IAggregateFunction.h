@@ -5,13 +5,24 @@
 #include <vector>
 #include <type_traits>
 
+#include <Common/config.h>
+
 #include <Core/Types.h>
 #include <Core/Field.h>
 #include <Common/Exception.h>
 
+#if USE_CUDA
+#include <AggregateFunctions/Cuda/ICudaAggregateFunction.h>
+#endif
+
 
 namespace DB
 {
+
+namespace ErrorCodes
+{
+    extern const int CUDA_UNSUPPORTED_AGGREGATE_FUNCTION;
+}
 
 class Arena;
 class ReadBuffer;
@@ -108,6 +119,16 @@ public:
       * const char * getHeaderFilePath() const override { return __FILE__; }
       */
     virtual const char * getHeaderFilePath() const = 0;
+
+#if USE_CUDA
+    virtual const CudaAggregateFunctionPtr  createCudaFunction() const
+    {
+        throw Exception("IAggregateFunction::createCudaFunction: aggregate function is not supported", ErrorCodes::CUDA_UNSUPPORTED_AGGREGATE_FUNCTION);
+        return nullptr;
+    }
+#else
+    //#error "no USE_CUDA!!"
+#endif
 };
 
 

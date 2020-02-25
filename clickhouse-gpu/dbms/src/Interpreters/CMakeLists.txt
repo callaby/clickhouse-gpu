@@ -45,6 +45,10 @@ message (STATUS "Using internal compiler: headers=${INTERNAL_COMPILER_HEADERS} :
 set (CONFIG_COMPILE ${ClickHouse_BINARY_DIR}/dbms/src/Interpreters/config_compile.h)
 configure_file (${ClickHouse_SOURCE_DIR}/dbms/src/Interpreters/config_compile.h.in ${CONFIG_COMPILE})
 
+if (USE_CUDA)
+    add_subdirectory (Cuda)
+endif ()
+
 if (ENABLE_TESTS)
     add_subdirectory (tests)
 endif ()

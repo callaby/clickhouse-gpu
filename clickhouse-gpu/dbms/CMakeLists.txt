@@ -33,6 +33,10 @@ add_subdirectory (src)
 
 set(dbms_headers)
 set(dbms_sources)
+if (USE_CUDA)
+    set(dbms_cuda_headers)
+    set(dbms_cuda_sources)
+endif ()
 
 include(${ClickHouse_SOURCE_DIR}/cmake/dbms_glob_sources.cmake)
 
@@ -57,11 +61,29 @@ add_headers_and_sources(dbms src/Storages/MergeTree)
 add_headers_and_sources(dbms src/Client)
 add_headers_only(dbms src/Server)
 
+if (USE_CUDA)
+    add_cuda_headers_and_sources(dbms_cuda src/Common/Cuda)
+    add_cuda_headers_and_sources(dbms_cuda src/Common/Cuda/City_Hash)
+    add_cuda_headers_and_sources(dbms_cuda src/Common/HashTable/Cuda)
+    add_cuda_headers_and_sources(dbms_cuda src/Columns/Cuda)
+    #TODO temporaly i added aggregate function to dbms_cuda
+    add_cuda_headers_and_sources(dbms_cuda src/AggregateFunctions/Cuda)
+    list (APPEND dbms_cuda_sources src/Interpreters/Cuda/CudaStringsAggregator.cu)
+    list (APPEND dbms_cuda_headers src/Interpreters/Cuda/CudaStringsAggregator.h)
+endif ()
+
 list (APPEND clickhouse_common_io_sources ${CONFIG_BUILD})
 list (APPEND clickhouse_common_io_headers ${CONFIG_VERSION} ${CONFIG_COMMON})
 
 list (APPEND dbms_sources src/Functions/IFunction.cpp src/Functions/FunctionFactory.cpp src/Functions/FunctionHelpers.cpp)
 list (APPEND dbms_headers src/Functions/IFunction.h src/Functions/FunctionFactory.h src/Functions/FunctionHelpers.h)
+
+if (USE_CUDA)
+    list (APPEND dbms_sources src/Interpreters/Cuda/CudaAggregator.cpp)
+    list (APPEND dbms_headers src/Interpreters/Cuda/CudaAggregator.h)
+    list (APPEND dbms_sources src/DataStreams/Cuda/CudaAggregatingBlockInputStream.cpp)
+    list (APPEND dbms_headers src/DataStreams/Cuda/CudaAggregatingBlockInputStream.h)
+endif ()
 
 list (APPEND dbms_sources
     src/AggregateFunctions/AggregateFunctionFactory.cpp
@@ -93,6 +115,9 @@ add_subdirectory(src/Common/Config)
 
 if (MAKE_STATIC_LIBRARIES)
     add_library(dbms ${dbms_headers} ${dbms_sources})
+    if (USE_CUDA)
+        cuda_add_library(dbms_cuda ${dbms_cuda_headers} ${dbms_cuda_sources} OPTIONS -Xcompiler -std=c++14)
+    endif ()
 else ()
     add_library(dbms SHARED ${dbms_headers} ${dbms_sources})
     set_target_properties (dbms PROPERTIES SOVERSION ${VERSION_MAJOR} VERSION ${VERSION_SO} OUTPUT_NAME clickhouse)
@@ -152,6 +177,10 @@ target_link_libraries (dbms
     ${OPENSSL_CRYPTO_LIBRARY}
     ${BTRIE_LIBRARIES}
 )
+
+if (USE_CUDA)
+    target_link_libraries (dbms dbms_cuda)
+endif ()
 
 if (NOT USE_INTERNAL_RE2_LIBRARY)
     target_include_directories (dbms BEFORE PRIVATE ${RE2_INCLUDE_DIR})
@@ -228,6 +257,9 @@ if (NOT USE_INTERNAL_ZSTD_LIBRARY)
 endif ()
 
 target_include_directories (dbms PUBLIC ${DBMS_INCLUDE_DIR})
+if (USE_CUDA)
+    target_include_directories (dbms_cuda PUBLIC ${DBMS_INCLUDE_DIR})
+endif ()
 target_include_directories (clickhouse_common_io PUBLIC ${DBMS_INCLUDE_DIR})
 target_include_directories (clickhouse_common_io PUBLIC ${PCG_RANDOM_INCLUDE_DIR})
 target_include_directories (clickhouse_common_io PUBLIC ${Poco_DataODBC_INCLUDE_DIRS})
@@ -235,6 +267,13 @@ target_include_directories (clickhouse_common_io BEFORE PUBLIC ${DOUBLE_CONVERSI
 
 # also for copy_headers.sh:
 target_include_directories (clickhouse_common_io BEFORE PRIVATE ${COMMON_INCLUDE_DIR})
+
+# WARNING i don't know where dbms includes it !!
+#target_include_directories (dbms_cuda PUBLIC ${CITYHASH_INCLUDE_DIR})
+if (USE_CUDA)
+    target_include_directories (dbms_cuda PUBLIC ${COMMON_INCLUDE_DIR})
+    target_include_directories (dbms_cuda PUBLIC ${CUB_INCLUDE_DIR})
+endif ()
 
 add_subdirectory (tests)
 

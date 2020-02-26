@@ -57,6 +57,13 @@ void    CudaHostStringsBuffer::addData(size_t str_num_, size_t str_buf_sz_, cons
     blocks_buf_sizes.push_back(str_buf_sz_);
 }
 
+bool    CudaHostStringsBuffer::tryAddData(size_t str_num_, size_t str_buf_sz_, const char *str_buf_, const UInt64 *offsets_, size_t memcpy_threads_num_ )
+{
+    if (!hasSpace(str_num_, str_buf_sz_)) return false;
+    addData(str_num_, str_buf_sz_, str_buf_, offsets_, memcpy_threads_num_);
+    return true;
+}
+
 void    CudaHostStringsBuffer::setSize(size_t str_num_, size_t sz_)
 {
     str_num = str_num_; sz = sz_;

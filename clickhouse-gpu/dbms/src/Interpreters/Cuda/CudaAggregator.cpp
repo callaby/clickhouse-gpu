@@ -192,8 +192,8 @@ bool CudaAggregator::executeOnBlock(const Block & block, CudaAggregatedDataVaria
     const Settings & settings = context.getSettingsRef();
     result.strings_agg->queueData(rows, 
         keys_column->getChars().size(), reinterpret_cast<const char*>(keys_column->getChars().data()), keys_column->getOffsets().data(),
-        vals_column->getChars().size(), reinterpret_cast<const char*>(vals_column->getChars().data()), vals_column->getOffsets().data());
-    result.strings_agg->waitQueueData();
+        vals_column->getChars().size(), reinterpret_cast<const char*>(vals_column->getChars().data()), vals_column->getOffsets().data(), 
+        settings.cuda_memcpy_threads_num);
 
     return true;
 }

@@ -10,8 +10,7 @@
 namespace DB
 {
 
-CudaColumnString::CudaColumnString(size_t max_str_num_,size_t max_sz_) : 
-    max_str_num(max_str_num_), max_sz(max_sz_), str_num(0), sz(0)
+CudaColumnString::CudaColumnString(size_t max_str_num_,size_t max_sz_) : max_str_num(max_str_num_), max_sz(max_sz_)
 {
     if ((max_str_num_ == 0)||(max_sz_ == 0)) throw std::logic_error("CudaColumnString: try to create zero size buffer");
     cudaError_t err;
@@ -41,27 +40,6 @@ CudaColumnString::CudaColumnString(size_t max_str_num_,size_t max_sz_) :
     }
 }
 
-bool CudaColumnString::hasSpace(size_t str_num_, size_t str_buf_sz_)const
-{
-    if (str_num + str_num_ > max_str_num) return false;
-    if (sz + str_buf_sz_ > max_sz) return false;
-    return true;
-}
-
-void CudaColumnString::addData(size_t str_num_, size_t str_buf_sz_, 
-                               const char *str_buf_, const UInt64 *offsets_, 
-                               cudaStream_t stream)
-{
-    CUDA_SAFE_CALL( cudaMemcpyAsync ( getBuf() + sz, str_buf_, 
-        str_buf_sz_, cudaMemcpyHostToDevice, stream ) );
-    // TODO do something with sizeof(UInt64)
-    CUDA_SAFE_CALL( cudaMemcpyAsync ( getOffsets64() + str_num, offsets_, 
-        str_num_*sizeof(UInt64), cudaMemcpyHostToDevice, stream ) );
-
-    str_num += str_num_; sz += str_buf_sz_;
-    blocks_sizes.push_back(str_num_);
-    blocks_buf_sizes.push_back(str_buf_sz_);
-}
 
 void CudaColumnString::setSize(size_t str_num_, size_t sz_)
 {
@@ -87,14 +65,8 @@ __global__ void kerCalcLengths(UInt32 block_begin, UInt32 block_size,
     //lens[block_begin + i] = 1;
 }
 
-void CudaColumnString::reset()
-{
-    str_num = 0; sz = 0;
-    blocks_sizes.clear(); 
-    blocks_buf_sizes.clear();
-}
-
-void CudaColumnString::calcLengths(cudaStream_t stream)
+void CudaColumnString::calcLengths(const std::vector<UInt32> &blocks_sizes, 
+    const std::vector<UInt32> &blocks_buf_sizes, cudaStream_t stream)
 {
     assert(blocks_sizes.size() == blocks_buf_sizes.size());
     UInt32  block_begin = 0, block_offset = 0;

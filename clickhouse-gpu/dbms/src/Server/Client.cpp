@@ -27,7 +27,6 @@
 #include <Common/StringUtils/StringUtils.h>
 #include <Common/typeid_cast.h>
 #include <Common/Config/ConfigProcessor.h>
-#include <Common/Cuda/cudaInitDevice.h>
 #include <Core/Types.h>
 #include <Core/QueryProcessingStage.h>
 #include <IO/ReadBufferFromFileDescriptor.h>
@@ -1512,8 +1511,6 @@ public:
 
 int mainEntryClickHouseClient(int argc, char ** argv)
 {
-    cudaInitDevice(0, 4294967296);
-
     DB::Client client;
 
     try

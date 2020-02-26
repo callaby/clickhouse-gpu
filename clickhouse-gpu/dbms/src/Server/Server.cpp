@@ -96,13 +96,6 @@ int Server::main(const std::vector<std::string> & /*args*/)
     registerTableFunctions();
     registerStorages();
 
-    /// TODO is it OK to place it here??
-#if USE_CUDA    
-    LOG_INFO(log, "Initializaing CUDA context");
-    //cudaInitDevice(0, 8589934592);
-    cudaInitDevice(0, 17179869184);
-#endif
-
     CurrentMetrics::set(CurrentMetrics::Revision, ClickHouseRevision::get());
 
     /** Context contains all that query execution is dependent:
@@ -300,6 +293,12 @@ int Server::main(const std::vector<std::string> & /*args*/)
     LOG_DEBUG(log, "Loaded metadata.");
 
     global_context->setCurrentDatabase(default_database);
+
+    /// TODO is it OK to place it here??
+#if USE_CUDA    
+    LOG_INFO(log, "Initializaing CUDA context");
+    cudaInitDevice(settings.cuda_device_number, settings.cuda_host_pinned_mem_pool_size);
+#endif
 
     SCOPE_EXIT({
         /** Ask to cancel background jobs all table engines,

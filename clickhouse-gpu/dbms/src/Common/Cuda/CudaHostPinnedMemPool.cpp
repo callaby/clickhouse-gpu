@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <stdexcept>
 #include <string>
-#include <cstring>
 
 #include <cuda.h>
 
@@ -23,7 +22,7 @@ CudaHostPinnedMemPool::CudaHostPinnedMemPool()
 
 }
 
-void CudaHostPinnedMemPool::init(std::size_t totalSize) 
+void CudaHostPinnedMemPool::init(const std::size_t totalSize) 
 {
     if (m_start_ptr != nullptr) 
     {
@@ -47,15 +46,14 @@ CudaHostPinnedMemPool::~CudaHostPinnedMemPool()
     m_start_ptr = nullptr;
 }
 
-void* CudaHostPinnedMemPool::alloc(std::size_t size, std::size_t alignment) 
+void* CudaHostPinnedMemPool::alloc(std::size_t size, const std::size_t alignment) 
 {
-    std::unique_lock<std::mutex> lck( mtx );
-
     const std::size_t allocationHeaderSize = sizeof(CudaHostPinnedMemPool::AllocationHeader);
     const std::size_t freeHeaderSize = sizeof(CudaHostPinnedMemPool::FreeHeader);
+    //if (!(size >= sizeof(Node))) throw std::logic_error("CudaHostPinnedMemPool::alloc: Allocation size must be bigger; size = " + std::to_string(size));
     size = std::max(size, sizeof(Node));
-    size = ((size/16)+1)*16;
-    alignment = std::max(alignment, size_t(16));
+    if (!(alignment >= 8)) 
+        throw std::logic_error("CudaHostPinnedMemPool::alloc: alignment must be at least 8");
 
     // Search through the free list for a free block that has enough space to allocate our data
     std::size_t padding;
@@ -99,7 +97,7 @@ void* CudaHostPinnedMemPool::alloc(std::size_t size, std::size_t alignment)
     return (void*) dataAddress;
 }
 
-void CudaHostPinnedMemPool::find(std::size_t size, std::size_t alignment, std::size_t& padding, Node *& previousNode, Node *& foundNode) 
+void CudaHostPinnedMemPool::find(const std::size_t size, const std::size_t alignment, std::size_t& padding, Node *& previousNode, Node *& foundNode) 
 {
     //Iterate list and return the first free block with a size >= than given size
     Node * it = m_freeList.head,
@@ -122,8 +120,6 @@ void CudaHostPinnedMemPool::find(std::size_t size, std::size_t alignment, std::s
 
 void CudaHostPinnedMemPool::free(void* ptr) 
 {
-    std::unique_lock<std::mutex> lck( mtx );
-
     // Insert it in a sorted position by the address number
     const std::size_t currentAddress = (std::size_t) ptr;
     const std::size_t headerAddress = currentAddress - sizeof (CudaHostPinnedMemPool::AllocationHeader);
@@ -154,25 +150,6 @@ void CudaHostPinnedMemPool::free(void* ptr)
 #ifdef _DEBUG
     std::cout << "F" << "\t@ptr " <<  ptr <<"\tH@ " << (void*) freeNode << "\tS " << freeNode->data.blockSize << "\tM " << m_used << std::endl;
 #endif
-}
-
-/// TODO there are no special optimizations for enlargement (realloc without memcpy case)
-/// TODO are we sure that new_size >= old_size??
-void *CudaHostPinnedMemPool::realloc(void * buf, size_t old_size, size_t new_size, size_t alignment)
-{
-    if (old_size == new_size)
-    {
-        /// nothing to do.
-    }
-    else 
-    {
-        void * new_buf = alloc(new_size, alignment);
-        memcpy(new_buf, buf, old_size);
-        free(buf);
-        buf = new_buf;
-    }
-
-    return buf;
 }
 
 void CudaHostPinnedMemPool::coalescence(Node* previousNode, Node * freeNode) 

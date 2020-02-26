@@ -47,8 +47,8 @@ public:
 
     void            startProcessing();
     void            queueData(size_t str_num, size_t str_buf_sz, const char *str_buf, const OffsetType *offsets,
-                              size_t vals_str_buf_sz, const char *vals_str_buf, const OffsetType *vals_offsets);
-    void            waitQueueData()const;
+                              size_t vals_str_buf_sz, const char *vals_str_buf, const OffsetType *vals_offsets,
+                              size_t memcpy_threads_num_ = 1);
     void            waitProcessed();
 
     const ResultType &getResult()const { return chunks[0]->agg_result; }
@@ -59,7 +59,6 @@ protected:
     CudaAggregateFunctionPtr                    aggregate_function;
     bool                                        is_vals_needed;
     int                                         curr_filling_chunk;
-    cudaStream_t                                copy_stream;
 
     /// TODO turn it into full incapsulated object
     struct WorkChunkInfo
@@ -67,17 +66,15 @@ protected:
         std::thread                                 t;
         cudaStream_t                                stream;
 
-        /// cuda_processing_state means that aggregation is in progress
-        /// and perhaps not ended yet; !cuda_processing_state means we 
-        /// can append data to cuda buffers
-        bool                                        cuda_processing_state;
-        std::mutex                                  cuda_buffer_mtx;
-        std::condition_variable                     cv_cuda_processing_end;
-        std::condition_variable                     cv_buffer_append_end;
+        CudaHostStringsBufferPtr                    host_buffer_keys, host_buffer_vals;
+        /// cuda_transfer_state means that cudaMemcpyAsync is called (or about to be called) 
+        /// and perhaps not ended yet; !cuda_transfer_state means we can append data to buffer
+        bool                                        cuda_transfer_state;
+        std::mutex                                  host_buffer_mtx;
+        std::condition_variable                     cv_cuda_transfer_end;
+        std::condition_variable                     cv_host_append_end;
 
         CudaColumnStringPtr                         cuda_buffer_keys, cuda_buffer_vals;
-        std::vector<UInt32>                         blocks_sizes, blocks_buf_keys_sizes, 
-                                                    blocks_buf_vals_sizes;
 
         std::shared_ptr<CudaStringsHashTable>       cuda_hash_table;
 
@@ -100,7 +97,8 @@ protected:
 
     /// ISSUE maybe move it inside WorkChunkInfo?
     bool        tryQueueData(size_t str_num, size_t str_buf_sz, const char *str_buf, const OffsetType *offsets,
-                             size_t vals_str_buf_sz, const char *vals_str_buf, const OffsetType *vals_offsets);
+                             size_t vals_str_buf_sz, const char *vals_str_buf, const OffsetType *vals_offsets,
+                             size_t memcpy_threads_num_ = 1);
 public:     /// TODO FUCKING WRONG that it is public!!
     void        processChunk(size_t i);
 };

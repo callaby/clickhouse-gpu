@@ -31,6 +31,9 @@ public:
     void                        addData(size_t str_num_, size_t str_buf_sz_, 
                                         const char *str_buf_, const UInt64 *offsets_, 
                                         size_t memcpy_threads_num_ = 1);
+    bool                        tryAddData(size_t str_num_, size_t str_buf_sz_, 
+                                           const char *str_buf_, const UInt64 *offsets_, 
+                                           size_t memcpy_threads_num_ = 1);
     void                        setSize(size_t str_num_, size_t sz_);
     void                        reset();
 protected:

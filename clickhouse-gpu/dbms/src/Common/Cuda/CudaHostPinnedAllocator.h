@@ -16,13 +16,4 @@ public:
     {
         CudaHostPinnedMemPool::instance().free(buf);
     }
-
-    /** Enlarge memory range.
-      * Data from old range is moved to the beginning of new range.
-      * Address of memory range could change.
-      */
-    void * realloc(void * buf, size_t old_size, size_t new_size, size_t alignment = 8)
-    {
-        return CudaHostPinnedMemPool::instance().realloc(buf, old_size, new_size, alignment);
-    }
 };

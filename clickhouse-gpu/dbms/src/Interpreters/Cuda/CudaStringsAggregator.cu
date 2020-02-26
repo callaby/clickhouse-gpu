@@ -31,8 +31,12 @@ CudaStringsAggregator::CudaStringsAggregator(int dev_number_, size_t chunks_num_
             new CudaStringsHashTable(hash_table_max_size_, hash_table_str_buffer_max_size_));
         chunks[i]->cuda_buffer_keys = CudaColumnStringPtr(
             new CudaColumnString(buffer_max_str_num_, buffer_max_size_));
+        chunks[i]->host_buffer_keys = CudaHostStringsBufferPtr(
+            new CudaHostStringsBuffer(buffer_max_str_num_, buffer_max_size_));
         chunks[i]->cuda_buffer_vals = CudaColumnStringPtr(
             new CudaColumnString(buffer_max_str_num_, buffer_max_size_));
+        chunks[i]->host_buffer_vals = CudaHostStringsBufferPtr(
+            new CudaHostStringsBuffer(buffer_max_str_num_, buffer_max_size_));
         chunks[i]->host_buffer_agg_res_keys = CudaHostStringsBufferPtr(
             new CudaHostStringsBuffer(buffer_max_str_num_, buffer_max_size_));
         chunks[i]->group_nums.resize(buffer_max_str_num_);
@@ -43,8 +47,6 @@ CudaStringsAggregator::CudaStringsAggregator(int dev_number_, size_t chunks_num_
         chunks[i]->agg_tmp_buf = CudaArrayPtr<char>(
             new CudaArray<char>( aggregate_function->cudaSizeOfAddBulkInternalBuf(buffer_max_str_num_) ));
     }
-    CUDA_SAFE_CALL(cudaStreamCreate( &copy_stream ));
-    std::cout << "CudaStringsAggregator created" << std::endl;
 
     /*chunks.resize(1);
     chunks[0] = WorkChunkInfoPtr(new WorkChunkInfo());
@@ -71,7 +73,7 @@ void CudaStringsAggregator::startProcessing()
 {
     /// start processing threads
     for (size_t i = 0;i < chunks.size();++i) {
-        chunks[i]->cuda_processing_state = false;
+        chunks[i]->cuda_transfer_state = false;
         //chunks[i]->t = std::thread(&CudaStringsAggregator::processChunk, this, i);
         chunks[i]->t = std::thread(callProcessChunk, ProcessChunkParams(this, i));
     }
@@ -82,39 +84,36 @@ void CudaStringsAggregator::startProcessing()
 
 
 void CudaStringsAggregator::queueData(size_t str_num, size_t str_buf_sz, const char *str_buf, const OffsetType *offsets,
-                                      size_t vals_str_buf_sz, const char *vals_str_buf, const OffsetType *vals_offsets)
+                                      size_t vals_str_buf_sz, const char *vals_str_buf, const OffsetType *vals_offsets,
+                                      size_t memcpy_threads_num_)
 {
     //printf("CudaStringsAggregator::queueData: params %d %d %d %d\n", str_num, str_buf_sz, vals_str_buf_sz, memcpy_threads_num_);
     while(1) {
-        if (tryQueueData(str_num, str_buf_sz, str_buf, offsets, vals_str_buf_sz, vals_str_buf, vals_offsets)) return;
+        if (tryQueueData(str_num, str_buf_sz, str_buf, offsets, vals_str_buf_sz, vals_str_buf, vals_offsets, memcpy_threads_num_)) return;
     }
 }
 
-void CudaStringsAggregator::waitQueueData()const
-{
-    CUDA_SAFE_CALL( cudaStreamSynchronize ( copy_stream ) );
-}
 
 void CudaStringsAggregator::waitProcessed()
 {
     {
-        std::unique_lock<std::mutex> lck( chunks[curr_filling_chunk]->cuda_buffer_mtx );
-        chunks[curr_filling_chunk]->cv_cuda_processing_end.wait( lck, [this]{return !chunks[curr_filling_chunk]->cuda_processing_state;} );
+        std::unique_lock<std::mutex> lck( chunks[curr_filling_chunk]->host_buffer_mtx );
+        chunks[curr_filling_chunk]->cv_cuda_transfer_end.wait( lck, [this]{return !chunks[curr_filling_chunk]->cuda_transfer_state;} );
 
-        if (!chunks[curr_filling_chunk]->cuda_buffer_keys->empty()) {
-            chunks[curr_filling_chunk]->cuda_processing_state = true;
-            chunks[curr_filling_chunk]->cv_buffer_append_end.notify_one();
+        if (!chunks[curr_filling_chunk]->host_buffer_keys->empty()) {
+            chunks[curr_filling_chunk]->cuda_transfer_state = true;
+            chunks[curr_filling_chunk]->cv_host_append_end.notify_one();
         }
     }
 
     /// wait till host to gpu copy ends, 'send' empty buffer to signal end of data
     for (size_t i = 0;i < chunks.size();++i) {
-        std::unique_lock<std::mutex> lck( chunks[i]->cuda_buffer_mtx );
-        chunks[i]->cv_cuda_processing_end.wait( lck, [this,i]{return !chunks[i]->cuda_processing_state;} );
-        if (!chunks[i]->cuda_buffer_keys->empty()) throw std::logic_error("CudaStringsAggregator: host buffer is not empty after transfer");
-        //setting cuda_processing_state with empty buffer means end of processing
-        chunks[i]->cuda_processing_state = true;
-        chunks[i]->cv_buffer_append_end.notify_one();
+        std::unique_lock<std::mutex> lck( chunks[i]->host_buffer_mtx );
+        chunks[i]->cv_cuda_transfer_end.wait( lck, [this,i]{return !chunks[i]->cuda_transfer_state;} );
+        if (!chunks[i]->host_buffer_keys->empty()) throw std::logic_error("CudaStringsAggregator: host buffer is not empty after transfer");
+        //setting cuda_transfer_state with empty buffer means end of processing
+        chunks[i]->cuda_transfer_state = true;
+        chunks[i]->cv_host_append_end.notify_one();
     }
 
     /// wait for processes for termination
@@ -131,6 +130,8 @@ void CudaStringsAggregator::waitProcessed()
             chunks[i]->cuda_hash_table->getBucketsNum(), chunks[i]->group_agg_res->getData(), 
             thrust::raw_pointer_cast(chunks[i]->group_nums.data()), chunks[0]->stream);
     }
+
+    chunks[0]->cuda_hash_table->calcOffsets(chunks[0]->stream);
 
     CUDA_SAFE_CALL( cudaMemcpyAsync ( chunks[0]->host_buffer_agg_res_keys->getBuf(), chunks[0]->cuda_hash_table->getStrBuf(), 
         chunks[0]->cuda_hash_table->getStrBufSz(), cudaMemcpyDeviceToHost, chunks[0]->stream ) );
@@ -170,26 +171,35 @@ void CudaStringsAggregator::waitProcessed()
     auto                                        host_e2 = steady_clock::now();
     auto                                        host_t = duration_cast<milliseconds>(host_e2 - host_e1);
     std::cout << "CudaStringsAggregator::waitProcessed: time for placing data into cpu hash table " << host_t.count() << "ms" << std::endl;
+
+    /*UInt64  *res1 = (UInt64*)(chunks[0]->host_group_agg_res->getData() + 0*aggregate_function->cudaSizeOfData()),
+            *res2 = (UInt64*)(chunks[0]->host_group_agg_res->getData() + 1*aggregate_function->cudaSizeOfData());
+    *res1 = 10;
+    *res2 = 33;
+    chunks[0]->agg_result["test_key1"] = (CudaAggregateDataPtr)res1;
+    chunks[0]->agg_result["test_key2"] = (CudaAggregateDataPtr)res2;*/
 }
 
 
 bool CudaStringsAggregator::tryQueueData(size_t str_num, size_t str_buf_sz, const char *str_buf, const OffsetType *offsets,
-                                         size_t vals_str_buf_sz, const char *vals_str_buf, const OffsetType *vals_offsets)
+                                         size_t vals_str_buf_sz, const char *vals_str_buf, const OffsetType *vals_offsets,
+                                         size_t memcpy_threads_num_)
 {
-    std::unique_lock<std::mutex> lck( chunks[curr_filling_chunk]->cuda_buffer_mtx );
-    chunks[curr_filling_chunk]->cv_cuda_processing_end.wait( lck, [this]{return !chunks[curr_filling_chunk]->cuda_processing_state;} );
+    std::unique_lock<std::mutex> lck( chunks[curr_filling_chunk]->host_buffer_mtx );
+    chunks[curr_filling_chunk]->cv_cuda_transfer_end.wait( lck, [this]{return !chunks[curr_filling_chunk]->cuda_transfer_state;} );
     
-    if (chunks[curr_filling_chunk]->cuda_buffer_keys->hasSpace(str_num, str_buf_sz) &&
-        chunks[curr_filling_chunk]->cuda_buffer_vals->hasSpace(str_num, vals_str_buf_sz) ) {
-        chunks[curr_filling_chunk]->cuda_buffer_keys->addData(str_num, str_buf_sz, str_buf, offsets, copy_stream);
+    if (chunks[curr_filling_chunk]->host_buffer_keys->hasSpace(str_num, str_buf_sz) &&
+        chunks[curr_filling_chunk]->host_buffer_vals->hasSpace(str_num, vals_str_buf_sz) ) {
+        chunks[curr_filling_chunk]->host_buffer_keys->addData(str_num, str_buf_sz, str_buf, offsets, memcpy_threads_num_);
         if (is_vals_needed)
-            chunks[curr_filling_chunk]->cuda_buffer_vals->addData(str_num, vals_str_buf_sz, vals_str_buf, vals_offsets, copy_stream);
+            chunks[curr_filling_chunk]->host_buffer_vals->addData(str_num, vals_str_buf_sz, vals_str_buf, vals_offsets, memcpy_threads_num_);
+        //std::cout << "CudaStringsAggregator::tryQueueData: tryAddData retuned true " << curr_filling_chunk << std::endl;
         return true;
     } else {
-        if (chunks[curr_filling_chunk]->cuda_buffer_keys->empty()) throw std::runtime_error("CudaStringsAggregator: seems there is not enough space in buffer");
-        waitQueueData();
-        chunks[curr_filling_chunk]->cuda_processing_state = true;
-        chunks[curr_filling_chunk]->cv_buffer_append_end.notify_one();
+        //std::cout << "CudaStringsAggregator::tryQueueData: tryAddData retuned false " << curr_filling_chunk << std::endl;
+        if (chunks[curr_filling_chunk]->host_buffer_keys->empty()) throw std::runtime_error("CudaStringsAggregator: seems there is not enough space in host buffer");
+        chunks[curr_filling_chunk]->cuda_transfer_state = true;
+        chunks[curr_filling_chunk]->cv_host_append_end.notify_one();
         curr_filling_chunk = (curr_filling_chunk+1)%chunks.size();
         return false;
     }
@@ -215,34 +225,60 @@ void CudaStringsAggregator::processChunk(size_t i)
         chunks[i]->group_agg_res->getData(), chunks[i]->stream);
 
     while (1) {
+
         {
-            std::cout << "CudaStringsAggregator::processChunk(i = " << i << "): waiting data..." << std::endl;
-            std::unique_lock<std::mutex> lck( chunks[i]->cuda_buffer_mtx );
-            chunks[i]->cv_buffer_append_end.wait( lck, [this,i]{return chunks[i]->cuda_processing_state;} );
+            auto                                        host_e1 = steady_clock::now();
+            std::unique_lock<std::mutex> lck( chunks[i]->host_buffer_mtx );
+            chunks[i]->cv_host_append_end.wait( lck, [this,i]{return chunks[i]->cuda_transfer_state;} );
+            auto                                        host_e2 = steady_clock::now();
+            auto                                        host_t = duration_cast<milliseconds>(host_e2 - host_e1);
             /// we agreed that empty buffer means end of processing
-            if (chunks[i]->cuda_buffer_keys->empty()) break;
+            if (chunks[i]->host_buffer_keys->empty()) break;
+            /// copy buffer ans string lengths and wait till copy ends
+            std::cout << "CudaStringsAggregator::processChunk(i = " << i << "): copy data to gpu" << std::endl;
+            CUDA_SAFE_CALL( cudaMemcpyAsync ( chunks[i]->cuda_buffer_keys->getBuf(), chunks[i]->host_buffer_keys->getBuf(), 
+                chunks[i]->host_buffer_keys->getBufSz(), cudaMemcpyHostToDevice, chunks[i]->stream ) );
+            // TODO do something with sizeof(UInt64)
+            CUDA_SAFE_CALL( cudaMemcpyAsync ( chunks[i]->cuda_buffer_keys->getOffsets64(), chunks[i]->host_buffer_keys->getOffsets64(), 
+                chunks[i]->host_buffer_keys->getStrNum()*sizeof(UInt64), cudaMemcpyHostToDevice, chunks[i]->stream ) );
+            if (is_vals_needed) 
+            {
+                CUDA_SAFE_CALL( cudaMemcpyAsync ( chunks[i]->cuda_buffer_vals->getBuf(), chunks[i]->host_buffer_vals->getBuf(), 
+                    chunks[i]->host_buffer_vals->getBufSz(), cudaMemcpyHostToDevice, chunks[i]->stream ) );
+                // TODO do something with sizeof(UInt64)
+                CUDA_SAFE_CALL( cudaMemcpyAsync ( chunks[i]->cuda_buffer_vals->getOffsets64(), chunks[i]->host_buffer_vals->getOffsets64(), 
+                    chunks[i]->host_buffer_vals->getStrNum()*sizeof(UInt64), cudaMemcpyHostToDevice, chunks[i]->stream ) );
+            }
+            CUDA_SAFE_CALL( cudaStreamSynchronize ( chunks[i]->stream ) );
+            chunks[i]->cuda_buffer_keys->setSize(chunks[i]->host_buffer_keys->getStrNum(), chunks[i]->host_buffer_keys->getBufSz());
+            if (is_vals_needed) 
+                chunks[i]->cuda_buffer_vals->setSize(chunks[i]->host_buffer_vals->getStrNum(), chunks[i]->host_buffer_vals->getBufSz());
 
+            // TODO we don't need it right here
             std::cout << "CudaStringsAggregator::processChunk(i = " << i << "): calc Lengths" << std::endl;
-            chunks[i]->cuda_buffer_keys->calcLengths( chunks[i]->stream );
+            chunks[i]->cuda_buffer_keys->calcLengths( chunks[i]->host_buffer_keys->getBlocksSizes(), 
+                chunks[i]->host_buffer_keys->getBlocksBufSizes(), chunks[i]->stream );
             if (is_vals_needed)
-                chunks[i]->cuda_buffer_vals->calcLengths( chunks[i]->stream );                
+                chunks[i]->cuda_buffer_vals->calcLengths( chunks[i]->host_buffer_vals->getBlocksSizes(), 
+                    chunks[i]->host_buffer_vals->getBlocksBufSizes(), chunks[i]->stream );                
 
-            size_t str_num = chunks[i]->cuda_buffer_keys->getStrNum();
-            chunks[i]->cuda_hash_table->addData(str_num, chunks[i]->cuda_buffer_keys->getBuf(), 
-                chunks[i]->cuda_buffer_keys->getOffsets(), chunks[i]->cuda_buffer_keys->getLens(), 
-                thrust::raw_pointer_cast(chunks[i]->group_nums.data()), chunks[i]->stream);
-            aggregate_function->cudaAddBulk(chunks[i]->group_agg_res->getData(), chunks[i]->cuda_buffer_vals,
-                str_num, thrust::raw_pointer_cast(chunks[i]->group_nums.data()), 
-                chunks[i]->agg_tmp_buf->getData(), chunks[i]->stream);
-
-            chunks[i]->cuda_buffer_keys->reset();
-            chunks[i]->cuda_buffer_vals->reset();
-            chunks[i]->cuda_processing_state = false;
-            chunks[i]->cv_cuda_processing_end.notify_one();
+            chunks[i]->host_buffer_keys->reset();
+            chunks[i]->host_buffer_vals->reset();
+            chunks[i]->cuda_transfer_state = false;
+            chunks[i]->cv_cuda_transfer_end.notify_one();
         }
+
+        size_t str_num = chunks[i]->cuda_buffer_keys->getStrNum();
+
+        chunks[i]->cuda_hash_table->addData(str_num, chunks[i]->cuda_buffer_keys->getBuf(), 
+            chunks[i]->cuda_buffer_keys->getOffsets(), chunks[i]->cuda_buffer_keys->getLens(), 
+            thrust::raw_pointer_cast(chunks[i]->group_nums.data()), chunks[i]->stream);
+
+        aggregate_function->cudaAddBulk(chunks[i]->group_agg_res->getData(), chunks[i]->cuda_buffer_vals,
+            str_num, thrust::raw_pointer_cast(chunks[i]->group_nums.data()), 
+            chunks[i]->agg_tmp_buf->getData(), chunks[i]->stream);
     }
 
-    chunks[i]->cuda_hash_table->calcOffsets(chunks[i]->stream);
     CUDA_SAFE_CALL( cudaStreamSynchronize ( chunks[i]->stream ) );      
 }
 
